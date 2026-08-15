@@ -3,10 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("ships the Shushu product shell instead of starter UI", async () => {
-  const [layout, page, app, packageJson] = await Promise.all([
+  const [layout, page, sharePage, app, schema, packageJson] = await Promise.all([
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/share/[token]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/shushu-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
@@ -18,6 +20,11 @@ test("ships the Shushu product shell instead of starter UI", async () => {
   assert.match(app, /2 \/ 6 \/ 24 \/ 72 小时/);
   assert.match(app, /查看原帖/);
   assert.match(app, /xiaohongshu\.com\/explore/);
+  assert.match(app, /生成只读链接/);
+  assert.match(app, /只读分享/);
+  assert.match(page, /chatGPTSignInPath/);
+  assert.match(sharePage, /shareToken/);
+  assert.match(schema, /share_links/);
   assert.doesNotMatch(`${layout}\n${page}\n${app}`, /Starter Project|Building your site|SkeletonPreview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

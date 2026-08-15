@@ -35,7 +35,9 @@ function dateTime(value: unknown) {
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
-export default function ShushuApp() {
+export default function ShushuApp({ shareToken }: { shareToken?: string }) {
+  const readOnly = Boolean(shareToken);
+  const shareBase = shareToken ? `/api/share/${encodeURIComponent(shareToken)}` : "";
   const [view, setView] = useState<View>("overview");
   const [data, setData] = useState<ApiState | null>(null);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
@@ -45,19 +47,20 @@ export default function ShushuApp() {
   const [query, setQuery] = useState("");
   const [changeOpen, setChangeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      const response = await fetch(readOnly ? `${shareBase}/dashboard` : "/api/dashboard", { cache: "no-store" });
       const body = await response.json() as { error?: string; data: ApiState };
       if (!response.ok) throw new Error(body.error || "数据加载失败");
       setData(body.data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "数据加载失败");
     } finally { setLoading(false); }
-  }, []);
+  }, [readOnly, shareBase]);
 
   useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2600); return () => clearTimeout(timer); }, [toast]);
@@ -65,20 +68,20 @@ export default function ShushuApp() {
   const openVideo = useCallback(async (id: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/videos/${id}`, { cache: "no-store" });
+      const response = await fetch(readOnly ? `${shareBase}/videos/${id}` : `/api/videos/${id}`, { cache: "no-store" });
       const body = await response.json() as { error?: string; data: Record<string, unknown> };
       if (!response.ok) throw new Error(body.error || "视频加载失败");
       setDetail(body.data); setView("video");
     } catch (cause) { setToast(cause instanceof Error ? cause.message : "视频加载失败"); }
     finally { setLoading(false); }
-  }, []);
+  }, [readOnly, shareBase]);
 
   const openExperiences = useCallback(async () => {
     setView("experiences");
-    const response = await fetch("/api/experiences", { cache: "no-store" });
+    const response = await fetch(readOnly ? `${shareBase}/experiences` : "/api/experiences", { cache: "no-store" });
     const body = await response.json() as { data: Array<Record<string, unknown>> };
     if (response.ok) setExperiences(body.data);
-  }, []);
+  }, [readOnly, shareBase]);
 
   const updateExperience = useCallback(async (id: string, status: string) => {
     const response = await fetch(`/api/experiences/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
@@ -104,23 +107,23 @@ export default function ShushuApp() {
       <NavButton icon="play" label="视频" active={activeNav === "videos"} onClick={() => navigate("videos")} />
       <NavButton icon="alert" label="异常与复盘" active={activeNav === "alerts"} badge={data?.alerts?.length || undefined} onClick={() => navigate("alerts")} />
       <NavButton icon="bulb" label="经验库" active={activeNav === "experiences"} onClick={() => navigate("experiences")} />
-      <div className="nav-label txt">系统</div>
-      <NavButton icon="settings" label="采集设置" active={activeNav === "settings"} onClick={() => navigate("settings")} />
+      {!readOnly && <><div className="nav-label txt">系统</div><NavButton icon="settings" label="采集设置" active={activeNav === "settings"} onClick={() => navigate("settings")} /></>}
       <div className="side-foot"><div className="acct"><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span></div></div>
     </aside>
 
     <main className="main"><div className="wrap">
-      <TopBar view={view} query={query} setQuery={setQuery} lastUpdate={account.lastSuccessfulCollectionAt} onRefresh={refresh} />
+      <TopBar view={view} query={query} setQuery={setQuery} lastUpdate={account.lastSuccessfulCollectionAt} onRefresh={refresh} readOnly={readOnly} onShare={() => setShareOpen(true)} />
       {error ? <ErrorState message={error} onRetry={refresh} /> : loading && !data ? <LoadingState /> : null}
       {!error && data && view === "overview" && <Overview data={data} openVideo={openVideo} navigate={navigate} />}
       {!error && data && view === "videos" && <Videos videos={filteredVideos} openVideo={openVideo} />}
       {!error && data && view === "alerts" && <Alerts alerts={data.alerts} openVideo={openVideo} />}
-      {!error && view === "experiences" && <Experiences items={experiences} update={updateExperience} />}
+      {!error && view === "experiences" && <Experiences items={experiences} update={readOnly ? undefined : updateExperience} />}
       {!error && view === "settings" && <Settings data={data} />}
-      {!error && view === "video" && detail && <VideoDetail detail={detail} onBack={() => setView("videos")} onChange={() => setChangeOpen(true)} onReview={() => setReviewOpen(true)} />}
+      {!error && view === "video" && detail && <VideoDetail detail={detail} onBack={() => setView("videos")} onChange={readOnly ? undefined : () => setChangeOpen(true)} onReview={readOnly ? undefined : () => setReviewOpen(true)} />}
     </div></main>
     {changeOpen && detail && <ChangeModal detail={detail} close={() => setChangeOpen(false)} saved={async (message) => { setChangeOpen(false); setToast(message); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); await refresh(); }} />}
     {reviewOpen && detail && <ReviewModal detail={detail} close={() => setReviewOpen(false)} saved={async () => { setReviewOpen(false); setToast("复盘已确认，经验草稿已保存"); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); }} />}
+    {shareOpen && <ShareModal close={() => setShareOpen(false)} />}
     <div className={`toast ${toast ? "on" : ""}`}><Icon name="check" />{toast}</div>
   </div>;
 }
@@ -138,10 +141,11 @@ const TITLES: Record<View, [string, string, string]> = {
   settings: ["COLLECTOR", "采集设置", "连接本机已登录的小红书创作者账号"],
 };
 
-function TopBar({ view, query, setQuery, lastUpdate, onRefresh }: { view: View; query: string; setQuery: (value: string) => void; lastUpdate: unknown; onRefresh: () => void }) {
+function TopBar({ view, query, setQuery, lastUpdate, onRefresh, readOnly, onShare }: { view: View; query: string; setQuery: (value: string) => void; lastUpdate: unknown; onRefresh: () => void; readOnly: boolean; onShare: () => void }) {
   const [eyebrow, title, subtitle] = TITLES[view];
   return <header className="top"><div><div className="eyebrow"><b>●</b> {eyebrow}</div><h1 className="page-title">{title}</h1><p className="page-sub">{subtitle}</p></div>
     {view === "videos" && <label className="search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题" /></label>}
+    {readOnly ? <span className="chip blue readonly-chip"><Icon name="eye" />只读分享</span> : <button className="btn btn-share" onClick={onShare}><Icon name="users" />分享</button>}
     <button className="upd-chip" onClick={onRefresh}><Icon name="history" /><span>更新于 <b>{dateTime(lastUpdate)}</b></span></button>
   </header>;
 }
@@ -255,10 +259,10 @@ function originalPostUrl(video: Record<string, unknown>) {
   return platformVideoId ? `https://www.xiaohongshu.com/explore/${encodeURIComponent(platformVideoId)}` : null;
 }
 
-function VideoDetail({ detail, onBack, onChange, onReview }: { detail: Record<string, unknown>; onBack: () => void; onChange: () => void; onReview: () => void }) {
+function VideoDetail({ detail, onBack, onChange, onReview }: { detail: Record<string, unknown>; onBack: () => void; onChange?: () => void; onReview?: () => void }) {
   const video = detail.video as Record<string, unknown>; const snapshots = detail.snapshots as Array<Record<string, unknown>>; const changes = detail.changes as Array<Record<string, unknown>>; const diagnoses = detail.diagnoses as Array<Record<string, unknown>>; const diagnosis = diagnoses[0];
   const postUrl = originalPostUrl(video);
-  return <div className="detail-page"><div className="back-row"><button className="text-btn" onClick={onBack}>← 返回视频列表</button></div><section className="card vd-head"><div className="vd-cover cover-0"><i className="ring-deco r1"/><i className="ring-deco r2"/><span className="cov-play"><Icon name="tri" /></span></div><div className="vd-info"><div className="vd-title-line"><h2>{String(video.title)}</h2>{postUrl && <a className="post-inline-link" href={postUrl} target="_blank" rel="noopener noreferrer" aria-label={`在新标签页查看${String(video.title)}原帖`}>查看原帖 ↗</a>}</div><p>{dateTime(video.publishedAt)} · {video.durationSeconds ? `${video.durationSeconds}s` : "时长待补录"} · {String(video.category ?? "未分类")}</p><div className="vd-tags"><span className={`chip ${video.status === "historical" ? "gray" : "blue"}`}>{video.status === "monitoring" ? "监测中" : video.status === "historical" ? "历史参考" : "观察完成"}</span>{((video.tags ?? []) as string[]).map((tag) => <span className="chip gray" key={tag}>{tag}</span>)}</div></div><div className="vd-actions"><button className="btn btn-pri" onClick={onChange}><Icon name="edit" />登记修改</button><button className="btn btn-ghost" onClick={onReview}><Icon name="doc" />确认复盘</button></div></section>
+  return <div className="detail-page"><div className="back-row"><button className="text-btn" onClick={onBack}>← 返回视频列表</button></div><section className="card vd-head"><div className="vd-cover cover-0"><i className="ring-deco r1"/><i className="ring-deco r2"/><span className="cov-play"><Icon name="tri" /></span></div><div className="vd-info"><div className="vd-title-line"><h2>{String(video.title)}</h2>{postUrl && <a className="post-inline-link" href={postUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`在新标签页查看${String(video.title)}原帖`}>查看原帖 ↗</a>}</div><p>{dateTime(video.publishedAt)} · {video.durationSeconds ? `${video.durationSeconds}s` : "时长待补录"} · {String(video.category ?? "未分类")}</p><div className="vd-tags"><span className={`chip ${video.status === "historical" ? "gray" : "blue"}`}>{video.status === "monitoring" ? "监测中" : video.status === "historical" ? "历史参考" : "观察完成"}</span>{((video.tags ?? []) as string[]).map((tag) => <span className="chip gray" key={tag}>{tag}</span>)}</div></div>{onChange && onReview && <div className="vd-actions"><button className="btn btn-pri" onClick={onChange}><Icon name="edit" />登记修改</button><button className="btn btn-ghost" onClick={onReview}><Icon name="doc" />确认复盘</button></div>}</section>
     <section className="card sec-gap"><div className="card-h row-between"><h3 className="card-t">生命周期曲线 <span className="sub">累计曝光</span></h3><div className="legend"><span><i style={{background:"var(--red)"}}/>实际值</span><span className="dash"><i/>账号基线</span></div></div><div className="card-b"><LifeChart snapshots={snapshots} changes={changes} /></div></section>
     <section className="detail-grid sec-gap"><section className="card"><div className="card-h"><h3 className="card-t">四环节诊断</h3><span className={`chip ${diagnosis?.primaryStage === "unlocated" ? "gray" : "red"}`}>{diagnosis ? `${STAGES[String(diagnosis.primaryStage)]?.label} · ${diagnosis.confidence === "low" ? "低" : diagnosis.confidence === "medium" ? "中" : "高"}置信度` : "等待节点数据"}</span></div><div className="card-b"><Funnel diagnosis={diagnosis} /></div></section><section className="card"><div className="card-h"><h3 className="card-t">修改时间轴</h3></div><div className="card-b"><Timeline changes={changes} publishedAt={video.publishedAt} /></div></section></section>
     {diagnosis && <section className="diag sec-gap"><div className="diag-head"><span className="chip red">主问题</span><h3>{STAGES[String(diagnosis.primaryStage)]?.label}</h3></div><div className="diag-columns"><div><h5>证据与可能原因</h5><ul>{((diagnosis.possibleReasons ?? []) as string[]).map((reason) => <li key={reason}>{reason}</li>)}</ul></div><div><h5>数据限制</h5><ul>{((diagnosis.limitations ?? []) as string[]).map((item) => <li key={item}>{item}</li>)}</ul></div></div>{Boolean(diagnosis.recommendation) && <div className="suggest"><b>下一步建议</b><p>{String((diagnosis.recommendation as Record<string, unknown>).action)}；主要观察 {String((diagnosis.recommendation as Record<string, unknown>).targetMetric)}，{String((diagnosis.recommendation as Record<string, unknown>).verificationMethod)}。</p></div>}</section>}
@@ -281,10 +285,63 @@ function formatEvidence(item: Record<string, unknown> | undefined, stage: string
 
 function Timeline({ changes, publishedAt }: { changes: Array<Record<string, unknown>>; publishedAt: unknown }) { return <div className="tl"><div className="tl-item"><i className="tl-dot mint"/><b>发布版本</b><small>{dateTime(publishedAt)}</small></div>{changes.map((change) => <div className="tl-item" key={String(change.id)}><i className="tl-dot violet"/><b>{(change.changeTypes as string[]).join("、")}</b><small>{dateTime(change.effectiveAt)}</small><p>{String(change.summary)}</p><span className="chip violet">目标：{String(change.targetMetric ?? "待补充")}</span></div>)}</div>; }
 
-function Experiences({ items, update }: { items: Array<Record<string, unknown>>; update: (id: string, status: string) => void }) {
+function Experiences({ items, update }: { items: Array<Record<string, unknown>>; update?: (id: string, status: string) => void }) {
   const [filter, setFilter] = useState("all");
   const visible = filter === "all" ? items : items.filter((item) => item.status === filter);
-  return <div><div className="filter-bar"><button className={`f-chip ${filter === "all" ? "on" : ""}`} onClick={() => setFilter("all")}>全部</button><button className={`f-chip ${filter === "draft" ? "on" : ""}`} onClick={() => setFilter("draft")}>待验证</button><button className={`f-chip ${filter === "confirmed" ? "on" : ""}`} onClick={() => setFilter("confirmed")}>已确认</button></div><div className="e-grid">{visible.map((item) => <article className="card e-card" key={String(item.id)}><div className="e-top"><h3>{String(item.title)}</h3><span className={`chip ${item.status === "confirmed" ? "mint" : item.status === "rejected" ? "gray" : "amber"}`}>{item.status === "confirmed" ? "已确认" : item.status === "rejected" ? "已驳回" : "草稿"}</span></div><p className="e-law">{String(item.observation)}</p><p className="e-action"><b>建议动作</b>{String(item.action)}</p><div className="e-meta"><span>{String(item.scope)}</span><span>·</span><span>{item.confidence === "high" ? "高" : item.confidence === "medium" ? "中" : "低"}置信度</span><span>· v{String(item.version)}</span></div>{item.status === "draft" && <div className="e-actions"><button className="btn btn-ghost" onClick={() => update(String(item.id), "rejected")}>驳回</button><button className="btn btn-pri" onClick={() => update(String(item.id), "confirmed")}>确认经验</button></div>}</article>)}{!visible.length && <Empty title="当前筛选下没有经验" description="72 小时复盘经人工确认后，经验草稿会出现在这里。" />}</div></div>;
+  return <div><div className="filter-bar"><button className={`f-chip ${filter === "all" ? "on" : ""}`} onClick={() => setFilter("all")}>全部</button><button className={`f-chip ${filter === "draft" ? "on" : ""}`} onClick={() => setFilter("draft")}>待验证</button><button className={`f-chip ${filter === "confirmed" ? "on" : ""}`} onClick={() => setFilter("confirmed")}>已确认</button></div><div className="e-grid">{visible.map((item) => <article className="card e-card" key={String(item.id)}><div className="e-top"><h3>{String(item.title)}</h3><span className={`chip ${item.status === "confirmed" ? "mint" : item.status === "rejected" ? "gray" : "amber"}`}>{item.status === "confirmed" ? "已确认" : item.status === "rejected" ? "已驳回" : "草稿"}</span></div><p className="e-law">{String(item.observation)}</p><p className="e-action"><b>建议动作</b>{String(item.action)}</p><div className="e-meta"><span>{String(item.scope)}</span><span>·</span><span>{item.confidence === "high" ? "高" : item.confidence === "medium" ? "中" : "低"}置信度</span><span>· v{String(item.version)}</span></div>{item.status === "draft" && update && <div className="e-actions"><button className="btn btn-ghost" onClick={() => update(String(item.id), "rejected")}>驳回</button><button className="btn btn-pri" onClick={() => update(String(item.id), "confirmed")}>确认经验</button></div>}</article>)}{!visible.length && <Empty title="当前筛选下没有经验" description="72 小时复盘经人工确认后，经验草稿会出现在这里。" />}</div></div>;
+}
+
+type ShareRecord = { id: string; label: string | null; createdAt: string; expiresAt: string | null };
+
+function ShareModal({ close }: { close: () => void }) {
+  const [items, setItems] = useState<ShareRecord[]>([]);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    const response = await fetch("/api/shares", { cache: "no-store" });
+    const body = await response.json() as { error?: string; data?: ShareRecord[] };
+    if (response.ok) setItems(body.data ?? []); else setError(body.error || "分享链接加载失败");
+  }, []);
+
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setBusy(true); setError(""); setCopied(false);
+    const form = new FormData(event.currentTarget);
+    const expires = String(form.get("expiresInDays") || "");
+    const response = await fetch("/api/shares", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: form.get("label"), expiresInDays: expires ? Number(expires) : null }),
+    });
+    const body = await response.json() as { error?: string; data?: { url: string } };
+    setBusy(false);
+    if (!response.ok || !body.data) { setError(body.error || "分享链接创建失败"); return; }
+    setUrl(body.data.url);
+    await load();
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); }
+    catch { setError("复制失败，请手动选择链接复制"); }
+  };
+
+  const revoke = async (id: string) => {
+    const response = await fetch(`/api/shares/${id}`, { method: "DELETE" });
+    if (!response.ok) { setError("撤销失败，请稍后重试"); return; }
+    await load();
+  };
+
+  return <div className="mask on" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><div className="modal share-modal">
+    <div className="m-h"><div><h2>分享账号数据</h2><p className="page-sub">持有链接的人无需登录，只能查看，不能修改或复盘。</p></div><button type="button" className="ico-btn" onClick={close}>×</button></div>
+    <form onSubmit={create}><label className="f-lab">链接名称</label><input className="f-in" name="label" defaultValue="小红书运营团队" maxLength={80}/><label className="f-lab">有效期</label><select className="f-se" name="expiresInDays" defaultValue=""><option value="">长期有效</option><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option></select><button className="btn btn-pri share-create" disabled={busy}><Icon name="users" />{busy ? "生成中…" : "生成只读链接"}</button></form>
+    {url && <div className="share-result"><span>新链接仅在这里完整显示一次</span><div><input className="f-in" readOnly value={url} onFocus={(event) => event.currentTarget.select()}/><button className="btn btn-ghost" onClick={copy}>{copied ? "已复制" : "复制"}</button></div></div>}
+    {error && <div className="form-error">{error}</div>}
+    <div className="share-list"><h3>有效链接</h3>{items.map((item) => <div key={item.id}><span><b>{item.label || "团队只读链接"}</b><small>{item.expiresAt ? `有效至 ${dateTime(item.expiresAt)}` : `创建于 ${dateTime(item.createdAt)} · 长期有效`}</small></span><button className="text-btn" onClick={() => void revoke(item.id)}>撤销</button></div>)}{!items.length && <p>还没有有效的分享链接。</p>}</div>
+  </div></div>;
 }
 
 function Settings({ data }: { data: ApiState | null }) { return <div className="settings-grid"><section className="card setup-card"><div className="card-h"><h2 className="card-t">OpenCLI 采集器</h2><span className={`chip ${data?.account.connectionStatus === "connected" ? "mint" : "amber"}`}>{data?.account.connectionStatus === "connected" ? "已连接" : "需要浏览器桥接"}</span></div><div className="card-b setup-steps"><div><b>01</b><span><strong>连接 Chrome</strong><small>安装 OpenCLI Browser Bridge，并在 Chrome 登录 creator.xiaohongshu.com。</small><a className="setup-link" href="https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk" target="_blank" rel="noreferrer">安装官方扩展 →</a></span></div><div><b>02</b><span><strong>执行连接体检</strong><code>npm run collector:doctor</code></span></div><div><b>03</b><span><strong>首次只读采集</strong><code>npm run collector:once</code><small>确认数据字段正确后，再启动连续采集。</small></span></div></div></section><section className="card setup-card"><div className="card-h"><h2 className="card-t">采集原则</h2></div><div className="card-b principles"><p><Icon name="eye" />仅使用创作者后台只读命令</p><p><Icon name="history" />原始响应与指标快照只追加，不覆盖</p><p><Icon name="alert" />登录失效不写入错误零值</p><p><Icon name="target" />失败自动按 5 / 15 / 30 分钟重试</p></div></section></div>; }

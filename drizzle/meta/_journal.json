@@ -15,6 +15,13 @@
       "when": 1786783509323,
       "tag": "0001_omniscient_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786788567768,
+      "tag": "0002_workable_valkyrie",
+      "breakpoints": true
     }
   ]
 }

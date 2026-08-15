@@ -43,6 +43,23 @@ export const accounts = sqliteTable("accounts", {
   uniqueIndex("accounts_platform_account_unique").on(table.platform, table.platformAccountId),
 ]);
 
+export const shareLinks = sqliteTable("share_links", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  accountId: text("account_id").notNull().references(() => accounts.id),
+  tokenHash: text("token_hash").notNull(),
+  permission: text("permission").notNull().default("read"),
+  label: text("label"),
+  expiresAt: text("expires_at"),
+  revokedAt: text("revoked_at"),
+  lastAccessedAt: text("last_accessed_at"),
+  createdBy: text("created_by").notNull(),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("share_links_token_hash_unique").on(table.tokenHash),
+  index("share_links_account_created_idx").on(table.accountId, table.createdAt),
+]);
+
 export const videos = sqliteTable("videos", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull().references(() => accounts.id),
