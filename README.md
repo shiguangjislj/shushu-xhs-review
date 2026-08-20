@@ -1,6 +1,6 @@
 # 薯数
 
-小红书自有账号的数据监测与内容复盘工具。第一阶段只在本机连接一个已经登录的创作者账号，验证：
+小红书自有账号的数据监测与内容复盘工具。第一阶段只在本机连接一个已经登录的创作者账号，默认同步最近 5 篇内容，验证：
 
 1. 核心指标能否连续稳定采集一周；
 2. 能否形成每篇内容发布后 2 / 6 / 24 / 72 小时曲线；
@@ -48,6 +48,20 @@ npm run collector:once
 ```bash
 npm run collector:start
 ```
+
+线上站点使用独立的本机私密配置 `.env.collector.local`。配置一次后，手动同步一轮：
+
+```bash
+npm run collector:cloud:once
+```
+
+需要连续采集时再运行：
+
+```bash
+npm run collector:cloud:start
+```
+
+`.env.collector.local` 不会提交到 GitHub；云端密钥也只作为 Sites 的加密环境变量保存。
 
 采集器只调用 OpenCLI 的创作者后台只读命令，不执行发布、评论或删除操作。登录失效或字段缺失不会被记录成真实的零值。
 

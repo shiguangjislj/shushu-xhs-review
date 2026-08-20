@@ -16,6 +16,14 @@ export function detail(rows, metric) {
   return rows.find((row) => row.metric === metric)?.value ?? null;
 }
 
+export function detailAny(rows, ...metrics) {
+  for (const metric of metrics) {
+    const value = detail(rows, metric);
+    if (value != null && String(value).trim() !== "") return value;
+  }
+  return null;
+}
+
 export function numeric(value) {
   if (value == null || value === "") return null;
   const number = Number.parseFloat(String(value).replace(/[,，%秒]/g, ""));
@@ -113,15 +121,15 @@ export function mapNoteDetail(rows, video, targetNodeHours) {
     durationSeconds: video.durationSeconds,
     targetNodeHours,
     metrics: {
-      exposures: numeric(detail(rows, "曝光数")),
-      views: numeric(detail(rows, "观看数")),
-      coverClickRate: rate(detail(rows, "封面点击率")),
-      avgWatchSeconds: numeric(detail(rows, "平均观看时长")),
-      likes: numeric(detail(rows, "点赞数")),
-      comments: numeric(detail(rows, "评论数")),
-      collects: numeric(detail(rows, "收藏数")),
-      shares: numeric(detail(rows, "分享数")),
-      followersGained: numeric(detail(rows, "涨粉数")),
+      exposures: numeric(detailAny(rows, "曝光数", "曝光")),
+      views: numeric(detailAny(rows, "观看数", "观看")),
+      coverClickRate: rate(detailAny(rows, "封面点击率")),
+      avgWatchSeconds: numeric(detailAny(rows, "人均观看时长", "平均观看时长")),
+      likes: numeric(detailAny(rows, "点赞数", "点赞")),
+      comments: numeric(detailAny(rows, "评论数", "评论")),
+      collects: numeric(detailAny(rows, "收藏数", "收藏")),
+      shares: numeric(detailAny(rows, "分享数", "分享")),
+      followersGained: numeric(detailAny(rows, "涨粉数", "涨粉")),
     },
     raw: rows,
   };

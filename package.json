@@ -18,7 +18,10 @@
     "local:start": "npm run db:local:migrate && npm run dev -- --host 127.0.0.1 --port 3000",
     "collector:doctor": "node collector/index.mjs doctor",
     "collector:once": "node collector/index.mjs once",
-    "collector:start": "node collector/index.mjs daemon"
+    "collector:current": "node collector/index.mjs current",
+    "collector:start": "node collector/index.mjs daemon",
+    "collector:cloud:once": "node --env-file=.env.collector.local collector/index.mjs once",
+    "collector:cloud:start": "node --env-file=.env.collector.local collector/index.mjs daemon"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

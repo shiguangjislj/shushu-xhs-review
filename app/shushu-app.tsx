@@ -48,6 +48,7 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
   const [changeOpen, setChangeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   const refresh = useCallback(async () => {
@@ -64,6 +65,11 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
 
   useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer); }, [refresh]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2600); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (readOnly || !data) return;
+    const needsSetup = data.account.connectionStatus !== "connected" || data.videos.length === 0;
+    if (needsSetup && window.localStorage.getItem("shushu.collector.onboarding.v1") !== "done") setOnboardingOpen(true);
+  }, [data, readOnly]);
 
   const openVideo = useCallback(async (id: string) => {
     setLoading(true);
@@ -94,6 +100,15 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
   const navigate = (target: View) => {
     if (target === "experiences") void openExperiences(); else setView(target);
   };
+  const openAccountPanel = () => {
+    if (readOnly) return;
+    const needsCollectorSetup = !data || data.account.connectionStatus !== "connected" || data.videos.length === 0;
+    if (needsCollectorSetup) {
+      setOnboardingOpen(true);
+      return;
+    }
+    navigate("settings");
+  };
 
   const filteredVideos = useMemo(() => (data?.videos ?? []).filter((video) => String(video.title ?? "").toLowerCase().includes(query.toLowerCase())), [data?.videos, query]);
   const account = data?.account ?? {};
@@ -108,7 +123,7 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
       <NavButton icon="alert" label="异常与复盘" active={activeNav === "alerts"} badge={data?.alerts?.length || undefined} onClick={() => navigate("alerts")} />
       <NavButton icon="bulb" label="经验库" active={activeNav === "experiences"} onClick={() => navigate("experiences")} />
       {!readOnly && <><div className="nav-label txt">系统</div><NavButton icon="settings" label="采集设置" active={activeNav === "settings"} onClick={() => navigate("settings")} /></>}
-      <div className="side-foot"><div className="acct"><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span></div></div>
+      <div className="side-foot"><button type="button" className={`acct ${readOnly ? "" : "acct-action"}`} onClick={openAccountPanel} disabled={readOnly} aria-label={data?.videos.length ? "打开采集设置" : "重新打开采集引导"} title={data?.videos.length ? "打开采集设置" : "重新打开采集引导"}><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span></button></div>
     </aside>
 
     <main className="main"><div className="wrap">
@@ -118,12 +133,13 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
       {!error && data && view === "videos" && <Videos videos={filteredVideos} openVideo={openVideo} />}
       {!error && data && view === "alerts" && <Alerts alerts={data.alerts} openVideo={openVideo} />}
       {!error && view === "experiences" && <Experiences items={experiences} update={readOnly ? undefined : updateExperience} />}
-      {!error && view === "settings" && <Settings data={data} />}
+      {!error && view === "settings" && <Settings data={data} openGuide={() => setOnboardingOpen(true)} />}
       {!error && view === "video" && detail && <VideoDetail detail={detail} onBack={() => setView("videos")} onChange={readOnly ? undefined : () => setChangeOpen(true)} onReview={readOnly ? undefined : () => setReviewOpen(true)} />}
     </div></main>
     {changeOpen && detail && <ChangeModal detail={detail} close={() => setChangeOpen(false)} saved={async (message) => { setChangeOpen(false); setToast(message); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); await refresh(); }} />}
     {reviewOpen && detail && <ReviewModal detail={detail} close={() => setReviewOpen(false)} saved={async () => { setReviewOpen(false); setToast("复盘已确认，经验草稿已保存"); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); }} />}
     {shareOpen && <ShareModal close={() => setShareOpen(false)} />}
+    {onboardingOpen && data && <CollectorOnboarding connected={data.account.connectionStatus === "connected"} videoCount={data.videos.length} refresh={refresh} close={() => { window.localStorage.setItem("shushu.collector.onboarding.v1", "done"); setOnboardingOpen(false); }} />}
     <div className={`toast ${toast ? "on" : ""}`}><Icon name="check" />{toast}</div>
   </div>;
 }
@@ -154,6 +170,11 @@ function Overview({ data, openVideo, navigate }: { data: ApiState; openVideo: (i
   const metric = data.accountMetrics ?? {};
   const rate = data.health.successRate;
   const connectionLabel = data.account.connectionStatus === "connected" ? "账号已连接" : "等待连接";
+  const monitoringVideos = data.videos.slice(0, 5);
+  const monitoringDemo = monitoringVideos.length > 0 && monitoringVideos.every((video) => {
+    const snapshot = (video.latestSnapshot ?? {}) as Record<string, unknown>;
+    return snapshot.exposures == null;
+  });
   return <div className="grid-ov">
     <section className="card col-12 collection-strip reveal">
       <div className="collector-account"><span className="collector-avatar">{String(data.account.nickname ?? "薯").slice(0, 1)}</span><span><b>{String(data.account.nickname ?? "待连接账号")}</b><small className={data.account.connectionStatus === "connected" ? "ok" : ""}><i />{connectionLabel}</small></span></div>
@@ -174,7 +195,7 @@ function Overview({ data, openVideo, navigate }: { data: ApiState; openVideo: (i
 
     <AccountTrend rows={data.accountTrend ?? []} />
 
-    <section className="card col-8 reveal"><div className="card-h row-between"><h2 className="card-t">正在监测 <span className="sub">{data.videos.filter((video) => video.status === "monitoring").length} 篇</span></h2><button className="text-btn" onClick={() => navigate("videos")}>查看全部 →</button></div><div className="card-b"><div className="v-grid">{data.videos.slice(0, 3).map((video, index) => <VideoCard key={String(video.id)} video={video} index={index} openVideo={openVideo} />)}{!data.videos.length && <Empty title="还没有视频数据" description="连接 OpenCLI 后，系统会自动发现已发布内容并建立节点任务。" />}</div></div></section>
+    <section className="card col-8 reveal"><div className="card-h row-between"><h2 className="card-t monitoring-title"><i className="live-monitor-dot"/>正在监测 <span className="sub">{data.videos.filter((video) => video.status === "monitoring").length} 篇</span>{monitoringDemo && <span className="chip amber">前端演示</span>}</h2><button className="text-btn" onClick={() => navigate("videos")}>查看全部 →</button></div><div className="card-b"><div className="v-grid">{monitoringVideos.map((video, index) => <VideoCard key={String(video.id)} video={video} index={index} openVideo={openVideo} demo={monitoringDemo} />)}{!data.videos.length && <Empty title="还没有视频数据" description="连接 OpenCLI 后，系统会自动发现已发布内容并建立节点任务。" />}</div>{monitoringDemo && <p className="demo-disclaimer">曝光、观看、点赞和涨粉为虚拟账号演示数据，仅用于确认前端呈现。</p>}</div></section>
     <section className="card col-4 reveal"><div className="card-h"><h2 className="card-t">最新异常</h2><span className="chip amber">{data.alerts.length} 条</span></div><div className="card-b compact-list">{data.alerts.slice(0, 4).map((alert) => <AlertRow key={String(alert.id)} alert={alert} openVideo={openVideo} />)}{!data.alerts.length && <Empty title="暂无异常" description="完成 6 小时节点后开始稳定诊断。" />}</div></section>
   </div>;
 }
@@ -188,7 +209,7 @@ function AccountMetric({ eyebrow, label, value, tone }: { eyebrow: string; label
 }
 
 const TREND_METRICS = {
-  exposure: { label: "曝光", color: "var(--red)", field: null },
+  exposure: { label: "曝光", color: "var(--red)", field: "exposures" },
   views: { label: "观看", color: "var(--blue)", field: "views" },
   engagement: { label: "互动", color: "var(--violet)", field: "interactions" },
   followers: { label: "涨粉", color: "var(--mint)", field: "followersGained" },
@@ -201,9 +222,11 @@ function AccountTrend({ rows }: { rows: Array<Record<string, unknown>> }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const trend = TREND_METRICS[active];
   const field = trend.field;
-  const available = field !== null && rows.length > 0;
-  const values = field === null ? [] : rows.map((row) => Number(row[field] ?? 0));
-  const dates = rows.map((row) => String(row.metricDate ?? "").slice(5).replace("-", "/"));
+  const hasRealValues = rows.length > 0 && rows.some((row) => row[field] != null);
+  const isExposureDemo = active === "exposure" && !hasRealValues;
+  const available = hasRealValues || isExposureDemo;
+  const values = isExposureDemo ? [7200, 8100, 7950, 9400, 10200, 9800, 11300] : rows.map((row) => Number(row[field] ?? 0));
+  const dates = isExposureDemo ? ["08/09", "08/10", "08/11", "08/12", "08/13", "08/14", "08/15"] : rows.map((row) => String(row.metricDate ?? "").slice(5).replace("-", "/"));
   const width = 1180; const height = 260; const left = 52; const right = 24; const top = 22; const bottom = 34;
   const max = Math.max(...values, 1); const magnitude = Math.pow(10, Math.max(0, String(Math.round(max)).length - 1)); const ceiling = Math.max(10, Math.ceil(max / magnitude) * magnitude);
   const step = values.length > 1 ? (width - left - right) / (values.length - 1) : 0;
@@ -222,14 +245,14 @@ function AccountTrend({ rows }: { rows: Array<Record<string, unknown>> }) {
   const tooltipX = hoverPoint ? Math.min(width - right - 132, Math.max(left + 8, hoverPoint[0] + 12)) : 0;
   const tooltipY = hoverPoint ? Math.max(top + 8, hoverPoint[1] - 58) : 0;
   return <section className="card col-12 trend-card reveal">
-    <div className="trend-head"><div><small>7-DAY TREND</small><h2>近 7 天核心指标趋势 <span className={`chip ${available ? "mint" : "gray"}`}>{available ? "真实数据" : "暂不可用"}</span></h2>{available && <div className="trend-total"><strong>{number(total)}</strong></div>}</div><div className="trend-tabs" role="tablist" aria-label="趋势指标">{(Object.keys(TREND_METRICS) as TrendKey[]).map((key) => <button role="tab" aria-selected={active === key} className={active === key ? "on" : ""} key={key} onClick={() => { setActive(key); setHovered(null); }}>{TREND_METRICS[key].label}</button>)}</div></div>
+    <div className="trend-head"><div><small>7-DAY TREND</small><h2>近 7 天核心指标趋势 <span className={`chip ${isExposureDemo ? "amber" : available ? "mint" : "gray"}`}>{isExposureDemo ? "演示数据" : available ? "真实数据" : "暂不可用"}</span></h2>{available && <div className="trend-total"><strong>{number(total)}</strong></div>}</div><div className="trend-tabs" role="tablist" aria-label="趋势指标">{(Object.keys(TREND_METRICS) as TrendKey[]).map((key) => <button role="tab" aria-selected={active === key} className={active === key ? "on" : ""} key={key} onClick={() => { setActive(key); setHovered(null); }}>{TREND_METRICS[key].label}</button>)}</div></div>
     {available ? <div className="trend-chart"><svg viewBox={`0 0 ${width} ${height}`} aria-label={`近 7 天${trend.label}趋势图`} onMouseMove={onMove} onMouseLeave={() => setHovered(null)}>
       {[0, .25, .5, .75, 1].map((ratio) => { const y = top + ratio * (height - top - bottom); const label = Math.round(ceiling * (1 - ratio)); return <g key={ratio}><line x1={left} x2={width - right} y1={y} y2={y} /><text x={left - 12} y={y + 4} textAnchor="end">{number(label)}</text></g>; })}
       <rect className="trend-hit" x={left} y={top} width={width - left - right} height={height - top - bottom} fill="transparent" />
       <path d={area} fill={trend.color} opacity=".07" stroke="none"/><path d={path} fill="none" stroke={trend.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"/>
       {coords.map(([x, y], index) => <g key={dates[index]} pointerEvents="none"><circle cx={x} cy={y} r="4" fill="#fff" stroke={trend.color} strokeWidth="2.5"/><text x={x} y={height - 10} textAnchor="middle">{dates[index]}</text></g>)}
       {hoverPoint && hovered != null && <g className="trend-hover" pointerEvents="none"><line className="trend-cross" x1={hoverPoint[0]} x2={hoverPoint[0]} y1={top} y2={height - bottom}/><line className="trend-cross" x1={left} x2={width - right} y1={hoverPoint[1]} y2={hoverPoint[1]}/><circle cx={hoverPoint[0]} cy={hoverPoint[1]} r="6" fill="#fff" stroke={trend.color} strokeWidth="3"/><g className="trend-tooltip" transform={`translate(${tooltipX} ${tooltipY})`}><rect width="124" height="48" rx="9"/><text x="12" y="18">{dates[hovered]}</text><text className="tooltip-value" x="12" y="37">{trend.label} {number(values[hovered])}</text></g></g>}
-    </svg></div> : <div className="trend-unavailable"><b>{active === "exposure" ? "账号级曝光暂时无法采集" : "等待逐日数据"}</b><p>{active === "exposure" ? "当前数据源没有账号级逐日曝光字段，不会用观看量代替。" : "完成一次有效采集后，这里会显示真实趋势。"}</p></div>}
+    </svg>{isExposureDemo && <p className="demo-note">创作者中心可采集单篇曝光；账号级逐日曝光接入后，将自动替换这里的演示数据。</p>}</div> : <div className="trend-unavailable"><b>等待逐日数据</b><p>完成一次有效采集后，这里会显示真实趋势。</p></div>}
   </section>;
 }
 
@@ -237,15 +260,22 @@ function HealthRing({ value }: { value: number }) { const pct = Math.max(0, Math
 function Task({ value, label, kind = "" }: { value: unknown; label: string; kind?: string }) { return <div className={`task-chip ${kind}`}><b>{number(value)}</b><span>{label}</span></div>; }
 function MetricCard({ label, value, icon, color }: { label: string; value: unknown; icon: string; color: string }) { return <section className="card col-3 m-card reveal"><div className="m-top"><span className={`m-ico ${color}`}><Icon name={icon} /></span><span className="m-lab">{label}</span></div><strong className="m-val num">{number(value)}</strong><p className="m-footnote">来自最近一次有效采集</p></section>; }
 
-function VideoCard({ video, index, openVideo }: { video: Record<string, unknown>; index: number; openVideo: (id: string) => void }) {
+const MONITORING_DEMO = [
+  { exposures: 12480, views: 3280, likes: 246, followersGained: 42 },
+  { exposures: 8260, views: 1890, likes: 112, followersGained: 21 },
+  { exposures: 21300, views: 6420, likes: 518, followersGained: 96 },
+];
+
+function VideoCard({ video, index, openVideo, demo = false }: { video: Record<string, unknown>; index: number; openVideo: (id: string) => void; demo?: boolean }) {
   const snapshot = (video.latestSnapshot ?? {}) as Record<string, unknown>;
-  return <button className={`card v-card cover-${index % 6}`} onClick={() => openVideo(String(video.id))}><div className="v-cover"><i className="ring-deco r1"/><i className="ring-deco r2"/><span className="cov-play"><Icon name="tri" /></span><span className="cat">{String(video.category ?? "未分类")}</span></div><div className="v-body"><h3 className="v-title">{String(video.title)}</h3><Life nodeCount={Number(video.nodeCount ?? 0)} /><div className="v-stats"><span><b>{number(snapshot.exposures)}</b><small>曝光</small></span><span><b>{number(snapshot.views)}</b><small>观看</small></span><span><b>{number(snapshot.likes)}</b><small>点赞</small></span></div></div></button>;
+  const metrics = demo ? MONITORING_DEMO[index % MONITORING_DEMO.length] : snapshot;
+  return <button className={`card v-card cover-${index % 6}`} onClick={() => openVideo(String(video.id))}><div className="v-cover"><i className="ring-deco r1"/><i className="ring-deco r2"/><span className="cov-play"><Icon name="tri" /></span><span className="cat">{String(video.category ?? "未分类")}</span></div><div className="v-body"><h3 className="v-title">{String(video.title)}</h3><Life nodeCount={Number(video.nodeCount ?? 0)} /><div className="v-stats"><span className="stat-red"><small>曝光</small><b>{number(metrics.exposures)}</b></span><span className="stat-blue"><small>观看</small><b>{number(metrics.views)}</b></span><span className="stat-violet"><small>点赞</small><b>{number(metrics.likes)}</b></span><span className="stat-mint"><small>涨粉</small><b>{number(metrics.followersGained)}</b></span></div></div></button>;
 }
 
 function Life({ nodeCount }: { nodeCount: number }) { return <div className="life">{[2, 6, 24, 72].map((node, index) => <span className={`life-node ${index < nodeCount ? "done" : index === nodeCount ? "cur" : ""}`} key={node}><i className="life-dot"/><small>{node}h</small>{index < 3 && <em />}</span>)}</div>; }
 
 function Videos({ videos, openVideo }: { videos: Array<Record<string, unknown>>; openVideo: (id: string) => void }) {
-  return <section className="card list-card"><div className="vlist-head"><span>内容</span><span>状态</span><span>生命周期</span><span>曝光</span><span>观看</span><span>诊断</span><span /></div>{videos.map((video, index) => { const snapshot = (video.latestSnapshot ?? {}) as Record<string, unknown>; const diagnosis = (video.diagnosis ?? {}) as Record<string, unknown>; const isHistorical = video.status === "historical"; return <button className="vlist-row" key={String(video.id)} onClick={() => openVideo(String(video.id))}><span className={`vl-cover cover-${index % 6}`}><Icon name="tri" /></span><span className="vl-main"><b>{String(video.title)}</b><small>{dateTime(video.publishedAt)} · {String(video.category ?? "未分类")}</small></span><span><span className={`chip ${video.status === "completed" ? "mint" : video.status === "incomplete" || isHistorical ? "gray" : "blue"}`}>{video.status === "completed" ? "已完成" : video.status === "incomplete" ? "数据不完整" : isHistorical ? "历史参考" : "监测中"}</span></span><Life nodeCount={Number(video.nodeCount ?? 0)} /><span className="vl-num">{number(snapshot.exposures)}</span><span className="vl-num">{number(snapshot.views)}</span><span className={`chip ${diagnosis.primaryStage && diagnosis.primaryStage !== "unlocated" ? "red" : "gray"}`}>{STAGES[String(diagnosis.primaryStage)]?.label ?? "待诊断"}</span><Icon name="play" /></button>; })}{!videos.length && <Empty title="没有匹配的视频" description="采集后的视频会显示在这里。" />}</section>;
+  return <section className="card list-card"><div className="vlist-head"><span>内容</span><span>状态</span><span>生命周期</span><span>曝光</span><span>观看</span><span>诊断</span><span /></div>{videos.map((video, index) => { const snapshot = (video.latestSnapshot ?? {}) as Record<string, unknown>; const diagnosis = (video.diagnosis ?? {}) as Record<string, unknown>; const isHistorical = video.status === "historical"; return <button className="vlist-row" key={String(video.id)} onClick={() => openVideo(String(video.id))}><span className="vlist-content"><span className={`vl-cover cover-${index % 6}`}><Icon name="tri" /></span><span className="vl-main"><b>{String(video.title)}</b><small>{dateTime(video.publishedAt)} · {String(video.category ?? "未分类")}</small></span></span><span className="vl-status"><span className={`chip ${video.status === "completed" ? "mint" : video.status === "incomplete" || isHistorical ? "gray" : "blue"}`}>{video.status === "completed" ? "已完成" : video.status === "incomplete" ? "数据不完整" : isHistorical ? "历史参考" : "监测中"}</span></span><Life nodeCount={Number(video.nodeCount ?? 0)} /><span className="vl-num">{number(snapshot.exposures)}</span><span className="vl-num">{number(snapshot.views)}</span><span className={`chip vl-diagnosis ${diagnosis.primaryStage && diagnosis.primaryStage !== "unlocated" ? "red" : "gray"}`}>{STAGES[String(diagnosis.primaryStage)]?.label ?? "待诊断"}</span><span className="vl-detail">详情</span></button>; })}{!videos.length && <Empty title="没有匹配的视频" description="采集后的视频会显示在这里。" />}</section>;
 }
 
 function Alerts({ alerts, openVideo }: { alerts: Array<Record<string, unknown>>; openVideo: (id: string) => void }) {
@@ -261,27 +291,103 @@ function originalPostUrl(video: Record<string, unknown>) {
 
 function VideoDetail({ detail, onBack, onChange, onReview }: { detail: Record<string, unknown>; onBack: () => void; onChange?: () => void; onReview?: () => void }) {
   const video = detail.video as Record<string, unknown>; const snapshots = detail.snapshots as Array<Record<string, unknown>>; const changes = detail.changes as Array<Record<string, unknown>>; const diagnoses = detail.diagnoses as Array<Record<string, unknown>>; const diagnosis = diagnoses[0];
+  const latestSnapshot = snapshots.at(-1);
+  const hasCurrentFunnel = Boolean(latestSnapshot && ["exposures", "coverClickRate", "avgWatchSeconds", "likes", "comments", "collects", "shares"].some((field) => latestSnapshot[field] != null));
   const postUrl = originalPostUrl(video);
   return <div className="detail-page"><div className="back-row"><button className="text-btn" onClick={onBack}>← 返回视频列表</button></div><section className="card vd-head"><div className="vd-cover cover-0"><i className="ring-deco r1"/><i className="ring-deco r2"/><span className="cov-play"><Icon name="tri" /></span></div><div className="vd-info"><div className="vd-title-line"><h2>{String(video.title)}</h2>{postUrl && <a className="post-inline-link" href={postUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`在新标签页查看${String(video.title)}原帖`}>查看原帖 ↗</a>}</div><p>{dateTime(video.publishedAt)} · {video.durationSeconds ? `${video.durationSeconds}s` : "时长待补录"} · {String(video.category ?? "未分类")}</p><div className="vd-tags"><span className={`chip ${video.status === "historical" ? "gray" : "blue"}`}>{video.status === "monitoring" ? "监测中" : video.status === "historical" ? "历史参考" : "观察完成"}</span>{((video.tags ?? []) as string[]).map((tag) => <span className="chip gray" key={tag}>{tag}</span>)}</div></div>{onChange && onReview && <div className="vd-actions"><button className="btn btn-pri" onClick={onChange}><Icon name="edit" />登记修改</button><button className="btn btn-ghost" onClick={onReview}><Icon name="doc" />确认复盘</button></div>}</section>
-    <section className="card sec-gap"><div className="card-h row-between"><h3 className="card-t">生命周期曲线 <span className="sub">累计曝光</span></h3><div className="legend"><span><i style={{background:"var(--red)"}}/>实际值</span><span className="dash"><i/>账号基线</span></div></div><div className="card-b"><LifeChart snapshots={snapshots} changes={changes} /></div></section>
-    <section className="detail-grid sec-gap"><section className="card"><div className="card-h"><h3 className="card-t">四环节诊断</h3><span className={`chip ${diagnosis?.primaryStage === "unlocated" ? "gray" : "red"}`}>{diagnosis ? `${STAGES[String(diagnosis.primaryStage)]?.label} · ${diagnosis.confidence === "low" ? "低" : diagnosis.confidence === "medium" ? "中" : "高"}置信度` : "等待节点数据"}</span></div><div className="card-b"><Funnel diagnosis={diagnosis} /></div></section><section className="card"><div className="card-h"><h3 className="card-t">修改时间轴</h3></div><div className="card-b"><Timeline changes={changes} publishedAt={video.publishedAt} /></div></section></section>
+    <section className="card sec-gap"><div className="card-h row-between"><h3 className="card-t">生命周期曲线 <span className="sub">2 / 6 / 24 / 72 小时累计反馈</span></h3><div className="legend"><span><i style={{background:"var(--red)"}}/>实际值</span><span className="dash"><i/>账号基线</span></div></div><div className="card-b"><LifeChart snapshots={snapshots} changes={changes} publishedAt={video.publishedAt} /></div></section>
+    <section className="detail-grid sec-gap"><section className="card"><div className="card-h"><h3 className="card-t">四环节诊断</h3><span className={`chip ${diagnosis?.primaryStage && diagnosis.primaryStage !== "unlocated" ? "red" : hasCurrentFunnel ? "mint" : "gray"}`}>{diagnosis ? `${STAGES[String(diagnosis.primaryStage)]?.label} · ${diagnosis.confidence === "low" ? "低" : diagnosis.confidence === "medium" ? "中" : "高"}置信度` : hasCurrentFunnel ? "当前采集数据" : "等待采集"}</span></div><div className="card-b"><Funnel diagnosis={diagnosis} snapshot={latestSnapshot} durationSeconds={video.durationSeconds == null ? null : Number(video.durationSeconds)} /></div></section><section className="card"><div className="card-h"><h3 className="card-t">修改时间轴</h3></div><div className="card-b"><Timeline changes={changes} publishedAt={video.publishedAt} /></div></section></section>
     {diagnosis && <section className="diag sec-gap"><div className="diag-head"><span className="chip red">主问题</span><h3>{STAGES[String(diagnosis.primaryStage)]?.label}</h3></div><div className="diag-columns"><div><h5>证据与可能原因</h5><ul>{((diagnosis.possibleReasons ?? []) as string[]).map((reason) => <li key={reason}>{reason}</li>)}</ul></div><div><h5>数据限制</h5><ul>{((diagnosis.limitations ?? []) as string[]).map((item) => <li key={item}>{item}</li>)}</ul></div></div>{Boolean(diagnosis.recommendation) && <div className="suggest"><b>下一步建议</b><p>{String((diagnosis.recommendation as Record<string, unknown>).action)}；主要观察 {String((diagnosis.recommendation as Record<string, unknown>).targetMetric)}，{String((diagnosis.recommendation as Record<string, unknown>).verificationMethod)}。</p></div>}</section>}
   </div>;
 }
 
-function LifeChart({ snapshots, changes }: { snapshots: Array<Record<string, unknown>>; changes: Array<Record<string, unknown>> }) {
-  const points = snapshots.filter((row) => row.exposures != null).map((row) => ({ x: Number(row.ageHours ?? 0), y: Number(row.exposures), node: row.targetNodeHours, at: row.collectedAt }));
-  if (!points.length) return <Empty title="等待生命周期数据" description="每个点会保留实际采集时间，并按 √t 比例展开。" />;
-  const width = 900, height = 250, left = 54, right = 20, top = 24, bottom = 36; const max = Math.max(...points.map((point) => point.y), 1);
-  const coords = points.map((point) => [left + Math.sqrt(Math.min(point.x, 72) / 72) * (width - left - right), top + (1 - point.y / max) * (height - top - bottom)] as [number, number]);
+const LIFE_METRICS = {
+  exposures: { label: "曝光", color: "var(--red)", kind: "count", baseline: [1600, 5200, 13000, 22000] },
+  coverClickRate: { label: "封面点击率", color: "var(--amber)", kind: "rate", baseline: [.12, .15, .17, .18] },
+  views: { label: "观看", color: "var(--blue)", kind: "count", baseline: [380, 1320, 3650, 6200] },
+  avgWatchSeconds: { label: "人均观看时长", color: "var(--violet)", kind: "seconds", baseline: [8, 10, 12, 13] },
+  interactions: { label: "互动", color: "var(--mint)", kind: "count", baseline: [38, 145, 480, 860] },
+  followersGained: { label: "涨粉", color: "#20B889", kind: "count", baseline: [5, 18, 52, 94] },
+} as const;
+type LifeMetricKey = keyof typeof LIFE_METRICS;
+
+const LIFE_DEMO = [
+  { ageHours: 2, targetNodeHours: 2, exposures: 1200, coverClickRate: .142, views: 260, avgWatchSeconds: 7.8, likes: 18, comments: 3, collects: 9, shares: 2, followersGained: 3 },
+  { ageHours: 6, targetNodeHours: 6, exposures: 4600, coverClickRate: .168, views: 1050, avgWatchSeconds: 10.6, likes: 76, comments: 11, collects: 34, shares: 9, followersGained: 15 },
+  { ageHours: 24, targetNodeHours: 24, exposures: 11800, coverClickRate: .184, views: 3200, avgWatchSeconds: 13.2, likes: 245, comments: 38, collects: 126, shares: 31, followersGained: 46 },
+  { ageHours: 72, targetNodeHours: 72, exposures: 18600, coverClickRate: .191, views: 5400, avgWatchSeconds: 14.1, likes: 430, comments: 68, collects: 245, shares: 57, followersGained: 82 },
+];
+
+function lifeMetricValue(row: Record<string, unknown>, key: LifeMetricKey) {
+  if (key !== "interactions") return nullableMetric(row[key]);
+  const parts = [row.likes, row.comments, row.collects, row.shares].map(nullableMetric);
+  return parts.some((value) => value != null) ? parts.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null;
+}
+
+function formatLifeValue(value: number, kind: "count" | "rate" | "seconds") {
+  if (kind === "rate") return percent(value, 1);
+  if (kind === "seconds") return `${value.toFixed(value % 1 ? 1 : 0)}s`;
+  return number(value);
+}
+
+function LifeChart({ snapshots, changes, publishedAt }: { snapshots: Array<Record<string, unknown>>; changes: Array<Record<string, unknown>>; publishedAt: unknown }) {
+  const [active, setActive] = useState<LifeMetricKey>("exposures");
+  const [hovered, setHovered] = useState<number | null>(null);
+  const lifecycleSnapshots = snapshots.filter((row) => [2, 6, 24, 72].includes(Number(row.targetNodeHours)));
+  const isDemo = lifecycleSnapshots.length === 0;
+  const source: Array<Record<string, unknown>> = isDemo ? LIFE_DEMO : lifecycleSnapshots;
+  const metric = LIFE_METRICS[active];
+  const points = source.map((row) => ({ x: Number(row.ageHours ?? row.targetNodeHours ?? 0), y: lifeMetricValue(row, active), node: Number(row.targetNodeHours ?? row.ageHours ?? 0), at: row.collectedAt, row })).filter((point): point is typeof point & { y: number } => point.y != null);
+  if (!points.length) return <Empty title={`等待${metric.label}生命周期数据`} description="采集到对应指标后，会按 2 / 6 / 24 / 72 小时节点展开。" />;
+  const baselineValues: readonly number[] = isDemo ? metric.baseline : [];
+  const width = 900, height = 292, left = 62, right = 24, top = 42, bottom = 42;
+  const max = Math.max(...points.map((point) => point.y), ...baselineValues, 1);
+  const magnitude = metric.kind === "rate" ? .05 : metric.kind === "seconds" ? 5 : Math.pow(10, Math.max(0, String(Math.round(max)).length - 1));
+  const ceiling = Math.max(magnitude, Math.ceil(max / magnitude) * magnitude);
+  const xFor = (hours: number) => left + Math.sqrt(Math.max(0, Math.min(hours, 72)) / 72) * (width - left - right);
+  const yFor = (value: number) => top + (1 - value / ceiling) * (height - top - bottom);
+  const coords = points.map((point) => [xFor(point.x), yFor(point.y)] as [number, number]);
+  const baselineCoords = baselineValues.map((value, index) => [xFor(points[index]?.x ?? 0), yFor(value)] as [number, number]);
   const path = smoothPath(coords);
-  return <div className="chart-wrap"><svg viewBox={`0 0 ${width} ${height}`} className="life-chart">{[0,.25,.5,.75,1].map((tick) => <line key={tick} x1={left} x2={width-right} y1={top+tick*(height-top-bottom)} y2={top+tick*(height-top-bottom)} stroke="var(--line-soft)" />)}<path d={path} fill="none" stroke="var(--red)" strokeWidth="3" strokeLinecap="round"/><path d={`${path} L${coords.at(-1)?.[0]},${height-bottom} L${coords[0][0]},${height-bottom}Z`} fill="rgba(255,36,66,.08)"/>{coords.map(([x,y], index) => <g key={index}><circle cx={x} cy={y} r="5" fill="var(--red)" stroke="#fff" strokeWidth="2.5"/><text x={x} y={height-12} textAnchor="middle">{points[index].node ? `${points[index].node}h` : `${points[index].x.toFixed(0)}h`}</text></g>)}{changes.map((change, index) => { const hours=(new Date(String(change.effectiveAt)).getTime()-new Date(String(points[0].at)).getTime())/3_600_000; const x=left+Math.sqrt(Math.max(0,Math.min(hours,72))/72)*(width-left-right); return <g key={String(change.id)}><line x1={x} x2={x} y1={top} y2={height-bottom} stroke="var(--violet)" strokeDasharray="4 5"/><text x={x+5} y={top+13+index*14} fill="var(--violet)">{(change.changeTypes as string[]).join("+")}</text></g>; })}</svg></div>;
+  const baselinePath = smoothPath(baselineCoords);
+  const onMove = (event: ReactMouseEvent<SVGSVGElement>) => { const rect = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - rect.left) * (width / rect.width); let nearest = 0; coords.forEach(([pointX], index) => { if (Math.abs(pointX - x) < Math.abs(coords[nearest][0] - x)) nearest = index; }); setHovered(nearest); };
+  const hoverPoint = hovered == null ? null : coords[hovered];
+  const hoverRow = hovered == null ? null : points[hovered]?.row;
+  const tooltipWidth = active === "interactions" ? 190 : 154;
+  const tooltipHeight = active === "interactions" ? 118 : 58;
+  const tooltipX = hoverPoint ? Math.min(width - right - tooltipWidth, Math.max(left + 6, hoverPoint[0] + 12)) : 0;
+  const tooltipY = hoverPoint ? (hoverPoint[1] < 150 ? hoverPoint[1] + 12 : hoverPoint[1] - tooltipHeight - 12) : 0;
+  const cumulative = metric.kind === "count" ? "累计" : "当前";
+  return <div className="life-chart-block"><div className="life-chart-tools"><p><b>怎么看：</b>横轴是发布后的时间，纵轴是{cumulative}{metric.label}；移动鼠标可查看每个节点的具体数据。</p><div className="life-tabs" role="tablist" aria-label="生命周期指标">{(Object.keys(LIFE_METRICS) as LifeMetricKey[]).map((key) => <button key={key} role="tab" aria-selected={active === key} className={active === key ? "on" : ""} onClick={() => { setActive(key); setHovered(null); }}>{LIFE_METRICS[key].label}</button>)}</div></div>{isDemo && <div className="life-demo-banner"><span className="chip amber">虚拟账号演示</span><span>当前快照不属于生命周期节点；采集到 2 / 6 / 24 / 72 小时数据后自动替换。</span></div>}<div className="chart-wrap"><svg viewBox={`0 0 ${width} ${height}`} className="life-chart" aria-label={`${metric.label}生命周期曲线`} onMouseMove={onMove} onMouseLeave={() => setHovered(null)}>{[0,.25,.5,.75,1].map((tick) => { const value = ceiling * (1 - tick); const y = top + tick * (height - top - bottom); return <g key={tick}><line x1={left} x2={width-right} y1={y} y2={y} stroke="var(--line-soft)"/><text x={left - 12} y={y + 4} textAnchor="end">{formatLifeValue(value, metric.kind)}</text></g>; })}{baselinePath && <path d={baselinePath} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="6 7"/>}<path d={`${path} L${coords.at(-1)?.[0]},${height-bottom} L${coords[0][0]},${height-bottom}Z`} fill={metric.color} opacity=".07"/><path d={path} fill="none" stroke={metric.color} strokeWidth="3" strokeLinecap="round"/>{coords.map(([x,y], index) => <g key={`${points[index].node}-${active}`}><circle cx={x} cy={y} r="5" fill="#fff" stroke={metric.color} strokeWidth="3"/><text x={x} y={height-13} textAnchor="middle">{points[index].node}h</text></g>)}{!isDemo && changes.map((change, index) => { const publishedMs = new Date(String(publishedAt)).getTime(); if (!Number.isFinite(publishedMs)) return null; const hours=(new Date(String(change.effectiveAt)).getTime()-publishedMs)/3_600_000; if (hours < 0 || hours > 72) return null; const x=xFor(hours); return <g key={String(change.id)}><line x1={x} x2={x} y1={top} y2={height-bottom} stroke="var(--violet)" strokeDasharray="4 5"/><text x={x+5} y={top+13+index*14} fill="var(--violet)">{(change.changeTypes as string[]).join("+")}</text></g>; })}{hoverPoint && hovered != null && hoverRow && <g className="life-hover" pointerEvents="none"><line x1={hoverPoint[0]} x2={hoverPoint[0]} y1={top} y2={height-bottom}/><circle cx={hoverPoint[0]} cy={hoverPoint[1]} r="6" fill="#fff" stroke={metric.color} strokeWidth="3"/><g className="life-tooltip" transform={`translate(${tooltipX} ${tooltipY})`}><rect width={tooltipWidth} height={tooltipHeight} rx="10"/><text x="12" y="19">发布后 {points[hovered].node} 小时</text><text className="tooltip-main" x="12" y="40">{metric.label} {formatLifeValue(points[hovered].y, metric.kind)}</text>{active === "interactions" && <g className="tooltip-parts"><text x="12" y="62">点赞 {number(hoverRow.likes)}</text><text x="100" y="62">评论 {number(hoverRow.comments)}</text><text x="12" y="83">收藏 {number(hoverRow.collects)}</text><text x="100" y="83">分享 {number(hoverRow.shares)}</text><text x="12" y="105">互动合计 {number(points[hovered].y)}</text></g>}</g></g>}</svg></div></div>;
 }
 
 function smoothPath(points: Array<[number, number]>) { if (points.length < 3) return points.map((point,index)=>`${index?"L":"M"}${point[0]},${point[1]}`).join(" "); let d=`M${points[0][0]},${points[0][1]}`; for(let i=0;i<points.length-1;i++){const p0=points[i-1]??points[i],p1=points[i],p2=points[i+1],p3=points[i+2]??p2; d+=` C${p1[0]+(p2[0]-p0[0])/6},${p1[1]+(p2[1]-p0[1])/6} ${p2[0]-(p3[0]-p1[0])/6},${p2[1]-(p3[1]-p1[1])/6} ${p2[0]},${p2[1]}`;} return d; }
 
-function Funnel({ diagnosis }: { diagnosis: Record<string, unknown> | undefined }) { const evidence = (diagnosis?.evidence ?? []) as Array<Record<string, unknown>>; return <div><div className="fun-legend"><span><i className="lgf"/>当前正常</span><span><i className="lgf r"/>当前偏低</span><span><i className="lgm"/>账号基线</span></div>{["exposure","click","retention","engagement"].map((stage) => { const item=evidence.find((row)=>row.stage===stage); const deviation=Number(item?.deviation ?? 0); const width=item?.actual == null?0:Math.max(8,Math.min(100,62.5*(1+deviation))); return <div className="fun-row" key={stage}><span className="fun-stage"><i style={{background:STAGES[stage].color}}/><span>{STAGES[stage].label}<small>{STAGES[stage].hint}</small></span></span><b>{formatEvidence(item, stage)}</b><span className="fun-track"><i className="fun-fill" style={{width:`${width}%`,background:item?.status==="low"?"var(--red)":"var(--mint)"}}/><i className="fun-mark"/></span><span className={item?.status==="low"?"down":"muted"}>{item?.deviation==null?"不可用":percent(item.deviation)}</span></div>; })}</div>; }
-function formatEvidence(item: Record<string, unknown> | undefined, stage: string) { if (!item || item.actual == null) return "—"; return stage === "exposure" ? number(item.actual) : percent(item.actual); }
+function currentFunnelEvidence(snapshot: Record<string, unknown> | undefined, durationSeconds: number | null) {
+  if (!snapshot) return [];
+  const exposures = nullableMetric(snapshot.exposures);
+  const views = nullableMetric(snapshot.views);
+  const avgWatchSeconds = nullableMetric(snapshot.avgWatchSeconds);
+  const interactionParts = [snapshot.likes, snapshot.comments, snapshot.collects, snapshot.shares].map(nullableMetric);
+  const interactionTotal = interactionParts.some((value) => value != null) ? interactionParts.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null;
+  return [
+    { stage: "exposure", actual: exposures, displayKind: "count" },
+    { stage: "click", actual: nullableMetric(snapshot.coverClickRate) ?? safeRatio(views, exposures), displayKind: "rate" },
+    { stage: "retention", actual: durationSeconds && durationSeconds >= 1 ? safeRatio(avgWatchSeconds, durationSeconds) : avgWatchSeconds, displayKind: durationSeconds && durationSeconds >= 1 ? "rate" : "seconds" },
+    { stage: "engagement", actual: safeRatio(interactionTotal, views), displayKind: "rate" },
+  ];
+}
+
+function nullableMetric(value: unknown) { const parsed = Number(value); return value == null || !Number.isFinite(parsed) ? null : parsed; }
+function safeRatio(numerator: number | null, denominator: number | null) { return numerator == null || denominator == null || denominator <= 0 ? null : numerator / denominator; }
+
+function Funnel({ diagnosis, snapshot, durationSeconds }: { diagnosis: Record<string, unknown> | undefined; snapshot: Record<string, unknown> | undefined; durationSeconds: number | null }) {
+  const diagnosed = (diagnosis?.evidence ?? []) as Array<Record<string, unknown>>;
+  const current = currentFunnelEvidence(snapshot, durationSeconds);
+  const hasBaseline = diagnosed.some((item) => item.baseline != null);
+  return <div className={hasBaseline ? "funnel-comparison" : "funnel-current"}>{hasBaseline ? <div className="fun-legend"><span><i className="lgf"/>当前正常</span><span><i className="lgf r"/>当前偏低</span><span><i className="lgm"/>账号基线</span></div> : <p className="fun-current-note">当前一次采集结果；积累同节点历史样本后，再显示账号基线对比。</p>}{["exposure","click","retention","engagement"].map((stage) => { const diagnosedItem=diagnosed.find((row)=>row.stage===stage); const currentItem=current.find((row)=>row.stage===stage); const actual=currentItem?.actual ?? nullableMetric(diagnosedItem?.actual); const deviation=nullableMetric(diagnosedItem?.deviation); const width=actual==null?0:Math.max(8,Math.min(100,62.5*(1+(deviation ?? 0)))); const status=String(diagnosedItem?.status ?? "current"); return <div className="fun-row" key={stage}><span className="fun-stage"><i style={{background:STAGES[stage].color}}/><span>{STAGES[stage].label}<small>{STAGES[stage].hint}</small></span></span><b>{formatEvidence(actual, stage, currentItem?.displayKind)}</b>{hasBaseline ? <><span className="fun-track"><i className="fun-fill" style={{width:`${width}%`,background:status==="low"?"var(--red)":"var(--mint)"}}/><i className="fun-mark"/></span><span className={status==="low"?"down":"muted"}>{actual == null ? "待采集" : deviation == null ? "暂无对比" : percent(deviation)}</span></> : <span className="fun-snapshot-label">{actual == null ? "待采集" : "最新采集"}</span>}</div>; })}</div>;
+}
+function formatEvidence(actual: number | null, stage: string, displayKind?: string) { if (actual == null) return "—"; if (displayKind === "seconds") return `${actual.toFixed(1)}s`; return stage === "exposure" ? number(actual) : percent(actual); }
 
 function Timeline({ changes, publishedAt }: { changes: Array<Record<string, unknown>>; publishedAt: unknown }) { return <div className="tl"><div className="tl-item"><i className="tl-dot mint"/><b>发布版本</b><small>{dateTime(publishedAt)}</small></div>{changes.map((change) => <div className="tl-item" key={String(change.id)}><i className="tl-dot violet"/><b>{(change.changeTypes as string[]).join("、")}</b><small>{dateTime(change.effectiveAt)}</small><p>{String(change.summary)}</p><span className="chip violet">目标：{String(change.targetMetric ?? "待补充")}</span></div>)}</div>; }
 
@@ -344,7 +450,35 @@ function ShareModal({ close }: { close: () => void }) {
   </div></div>;
 }
 
-function Settings({ data }: { data: ApiState | null }) { return <div className="settings-grid"><section className="card setup-card"><div className="card-h"><h2 className="card-t">OpenCLI 采集器</h2><span className={`chip ${data?.account.connectionStatus === "connected" ? "mint" : "amber"}`}>{data?.account.connectionStatus === "connected" ? "已连接" : "需要浏览器桥接"}</span></div><div className="card-b setup-steps"><div><b>01</b><span><strong>连接 Chrome</strong><small>安装 OpenCLI Browser Bridge，并在 Chrome 登录 creator.xiaohongshu.com。</small><a className="setup-link" href="https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk" target="_blank" rel="noreferrer">安装官方扩展 →</a></span></div><div><b>02</b><span><strong>执行连接体检</strong><code>npm run collector:doctor</code></span></div><div><b>03</b><span><strong>首次只读采集</strong><code>npm run collector:once</code><small>确认数据字段正确后，再启动连续采集。</small></span></div></div></section><section className="card setup-card"><div className="card-h"><h2 className="card-t">采集原则</h2></div><div className="card-b principles"><p><Icon name="eye" />仅使用创作者后台只读命令</p><p><Icon name="history" />原始响应与指标快照只追加，不覆盖</p><p><Icon name="alert" />登录失效不写入错误零值</p><p><Icon name="target" />失败自动按 5 / 15 / 30 分钟重试</p></div></section></div>; }
+function Settings({ data, openGuide }: { data: ApiState | null; openGuide: () => void }) { return <div className="settings-grid"><section className="card setup-card"><div className="card-h"><h2 className="card-t">OpenCLI 采集器</h2><span className={`chip ${data?.account.connectionStatus === "connected" ? "mint" : "amber"}`}>{data?.account.connectionStatus === "connected" ? "已连接" : "需要浏览器桥接"}</span><button type="button" className="text-btn setup-guide-btn" onClick={openGuide}>查看新手引导</button></div><div className="card-b setup-steps"><div><b>01</b><span><strong>连接 Chrome</strong><small>安装 OpenCLI Browser Bridge，并在 Chrome 登录 creator.xiaohongshu.com。</small><a className="setup-link" href="https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk" target="_blank" rel="noreferrer">安装官方扩展 →</a></span></div><div><b>02</b><span><strong>执行连接体检</strong><code>npm run collector:doctor</code></span></div><div><b>03</b><span><strong>首次只读采集</strong><code>npm run collector:cloud:once</code><small>默认读取最近 5 篇内容；确认数据正确后，再启动连续采集。</small></span></div></div></section><section className="card setup-card"><div className="card-h"><h2 className="card-t">采集原则</h2></div><div className="card-b principles"><p><Icon name="eye" />仅使用创作者后台只读命令</p><p><Icon name="history" />原始响应与指标快照只追加，不覆盖</p><p><Icon name="alert" />登录失效不写入错误零值</p><p><Icon name="target" />失败自动按 5 / 15 / 30 分钟重试</p></div></section></div>; }
+
+function CollectorOnboarding({ connected, videoCount, refresh, close }: { connected: boolean; videoCount: number; refresh: () => Promise<void>; close: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const command = "npm run collector:cloud:once";
+  const copyCommand = async () => {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  };
+  const checkData = async () => {
+    setChecking(true);
+    await refresh();
+    setChecking(false);
+  };
+  return <div className="mask on onboarding-mask"><div className="modal onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="collector-onboarding-title">
+    <div className="onboarding-kicker"><i className="live-monitor-dot" />首次使用 · 约 3 分钟</div>
+    <div className="m-h"><div><h2 id="collector-onboarding-title">连接你已登录的小红书账号</h2><p className="page-sub">薯数只读取创作者中心数据，不会发布、评论或修改内容。</p></div><button type="button" className="ico-btn" onClick={close} aria-label="关闭引导">×</button></div>
+    <div className="onboarding-status"><span className={connected ? "done" : "current"}><i />{connected ? "账号已经连接" : "等待连接本机 Chrome"}</span><b>{videoCount ? `已发现 ${videoCount} 篇内容` : "首次将读取最近 5 篇"}</b></div>
+    <div className="onboarding-steps">
+      <section><b>01</b><div><h3>在 Chrome 登录创作者中心</h3><p>使用需要监测的小红书账号登录，并保持页面处于登录状态。</p><a className="btn btn-ghost" href="https://creator.xiaohongshu.com" target="_blank" rel="noreferrer">打开创作者中心 ↗</a></div></section>
+      <section><b>02</b><div><h3>确认 OpenCLI 浏览器扩展已连接</h3><p>扩展负责在本机读取当前登录账号；账号密码和 Cookie 不会上传到薯数。</p><a className="setup-link" href="https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk" target="_blank" rel="noreferrer">检查或安装扩展 →</a></div></section>
+      <section><b>03</b><div><h3>运行首次只读采集</h3><p>在安装薯数项目的电脑终端中运行。完成后回到这里检查结果。</p><div className="onboarding-command"><code>{command}</code><button type="button" onClick={() => void copyCommand()}>{copied ? "已复制" : "复制命令"}</button></div></div></section>
+    </div>
+    <p className="onboarding-note">当前内部验证版需要本机采集器保持运行；网页版无法绕过 Chrome 权限直接读取登录数据。</p>
+    <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick={close}>稍后设置</button><button type="button" className="btn btn-pri" disabled={checking} onClick={() => void checkData()}>{checking ? "正在检查…" : connected ? "刷新最新数据" : "我已采集，检查数据"}</button></div>
+  </div></div>;
+}
 
 async function uploadAsset(file: File) {
   const form = new FormData();

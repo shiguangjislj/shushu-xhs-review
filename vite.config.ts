@@ -13,7 +13,6 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
   d1_databases: d1
     ? [
         {
@@ -33,7 +32,7 @@ const localBindingConfig = {
     : [],
 };
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ command }) => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -42,6 +41,16 @@ export default defineConfig(async () => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
+  const cloudflareConfig =
+    command === "serve"
+      ? {
+          configPath: "./wrangler.local.jsonc",
+          config: localBindingConfig,
+          persistState: { path: ".wrangler/state" },
+        }
+      : {
+          main: "./worker/index.ts",
+        };
 
   return {
     server: isCodexSeatbeltSandbox
@@ -52,7 +61,7 @@ export default defineConfig(async () => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: localBindingConfig,
+        config: cloudflareConfig,
       }),
     ],
   };

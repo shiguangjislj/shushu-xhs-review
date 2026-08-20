@@ -10,10 +10,24 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OPENCLI = resolve(ROOT, "node_modules/.bin/opencli");
 const API_URL = (process.env.SHUSHU_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const TOKEN = process.env.SHUSHU_COLLECTOR_TOKEN ?? "dev-collector-token";
-const LIMIT = Number.parseInt(process.env.SHUSHU_NOTE_LIMIT ?? "20", 10);
+const LIMIT = Number.parseInt(process.env.SHUSHU_NOTE_LIMIT ?? "5", 10);
 const INTERVAL_MS = Number.parseInt(process.env.SHUSHU_INTERVAL_MINUTES ?? "10", 10) * 60_000;
 
 function runOpenCli(args) {
+  const startedAt = Date.now();
+  const command = args[1] ?? args[0] ?? "unknown";
+  const label = command === "creator-profile"
+    ? "读取账号信息"
+    : command === "creator-stats" && args.includes("seven")
+      ? "读取近 7 天账号数据"
+      : command === "creator-stats" && args.includes("thirty")
+        ? "读取近 30 天账号数据"
+        : command === "creator-notes"
+          ? "读取最近视频列表"
+          : command === "creator-note-detail"
+            ? "读取单篇视频详情"
+            : `执行 ${command}`;
+  process.stderr.write(`[采集中] ${label}...\n`);
   const result = spawnSync(OPENCLI, [...args, "-f", "json", "--window", "background"], {
     cwd: ROOT,
     encoding: "utf8",
@@ -21,6 +35,7 @@ function runOpenCli(args) {
     timeout: 240_000,
   });
   if (result.status !== 0) throw new Error((result.stderr || result.stdout || `OpenCLI 退出码 ${result.status}`).trim());
+  process.stderr.write(`[完成] ${label}（${((Date.now() - startedAt) / 1000).toFixed(1)} 秒）\n`);
   return JSON.parse(result.stdout);
 }
 
@@ -97,6 +112,27 @@ async function collectDue(platformAccountId, nickname) {
   return due.length;
 }
 
+async function collectCurrent(videoId) {
+  const dashboard = await api("/api/dashboard");
+  const data = dashboard.data ?? dashboard;
+  const videos = Array.isArray(data.videos) ? data.videos : [];
+  const video = videos.find((item) => String(item.platformVideoId) === String(videoId) || String(item.id) === String(videoId));
+  if (!video) throw new Error(videoId ? `没有找到视频：${videoId}` : "请在命令后提供视频 ID");
+  const rows = runOpenCli(["xiaohongshu", "creator-note-detail", video.platformVideoId]);
+  const collectedAt = new Date().toISOString();
+  await api("/api/collector/ingest", {
+    method: "POST",
+    body: JSON.stringify({
+      idempotencyKey: `current:${video.platformVideoId}:${collectedAt}`,
+      collectedAt,
+      collectorVersion: "opencli-1.8.6/shushu-1.0.0",
+      account: { platformAccountId: data.account.platformAccountId, nickname: data.account.nickname },
+      videos: [mapNoteDetail(rows, video, null)],
+    }),
+  });
+  process.stdout.write(JSON.stringify({ ok: true, platformVideoId: video.platformVideoId, title: video.title, collectedAt }) + "\n");
+}
+
 async function once() {
   const discovered = await discover();
   const dueCount = await collectDue(discovered.platformAccountId, discovered.nickname);
@@ -108,6 +144,10 @@ async function main() {
   if (mode === "doctor") {
     const result = spawnSync(OPENCLI, ["doctor"], { cwd: ROOT, encoding: "utf8", env: process.env });
     process.stdout.write(result.stdout); process.stderr.write(result.stderr); process.exitCode = result.status ?? 1; return;
+  }
+  if (mode === "current") {
+    await collectCurrent(process.argv[3]);
+    return;
   }
   await once();
   if (mode === "daemon") {
