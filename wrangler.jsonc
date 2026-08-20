@@ -7,6 +7,9 @@
     "nodejs_compat"
   ],
   "main": "./worker/index.ts",
+  "vars": {
+    "SHUSHU_SINGLE_USER_MODE": "true"
+  },
   "routes": [
     {
       "pattern": "shushureview.cn",

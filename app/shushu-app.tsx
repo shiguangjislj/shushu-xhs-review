@@ -67,8 +67,7 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2600); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {
     if (readOnly || !data) return;
-    const needsSetup = data.account.connectionStatus !== "connected" || data.videos.length === 0;
-    if (needsSetup && window.localStorage.getItem("shushu.collector.onboarding.v1") !== "done") setOnboardingOpen(true);
+    if (window.localStorage.getItem("shushu.collector.onboarding.v2") !== "done") setOnboardingOpen(true);
   }, [data, readOnly]);
 
   const openVideo = useCallback(async (id: string) => {
@@ -139,7 +138,7 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
     {changeOpen && detail && <ChangeModal detail={detail} close={() => setChangeOpen(false)} saved={async (message) => { setChangeOpen(false); setToast(message); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); await refresh(); }} />}
     {reviewOpen && detail && <ReviewModal detail={detail} close={() => setReviewOpen(false)} saved={async () => { setReviewOpen(false); setToast("复盘已确认，经验草稿已保存"); const video = detail.video as Record<string, unknown>; await openVideo(String(video.id)); }} />}
     {shareOpen && <ShareModal close={() => setShareOpen(false)} />}
-    {onboardingOpen && data && <CollectorOnboarding connected={data.account.connectionStatus === "connected"} videoCount={data.videos.length} refresh={refresh} close={() => { window.localStorage.setItem("shushu.collector.onboarding.v1", "done"); setOnboardingOpen(false); }} />}
+    {onboardingOpen && data && <CollectorOnboarding connected={data.account.connectionStatus === "connected"} videoCount={data.videos.length} refresh={refresh} close={() => { window.localStorage.setItem("shushu.collector.onboarding.v2", "done"); setOnboardingOpen(false); }} />}
     <div className={`toast ${toast ? "on" : ""}`}><Icon name="check" />{toast}</div>
   </div>;
 }
@@ -469,7 +468,7 @@ function CollectorOnboarding({ connected, videoCount, refresh, close }: { connec
   return <div className="mask on onboarding-mask"><div className="modal onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="collector-onboarding-title">
     <div className="onboarding-kicker"><i className="live-monitor-dot" />首次使用 · 约 3 分钟</div>
     <div className="m-h"><div><h2 id="collector-onboarding-title">连接你已登录的小红书账号</h2><p className="page-sub">薯数只读取创作者中心数据，不会发布、评论或修改内容。</p></div><button type="button" className="ico-btn" onClick={close} aria-label="关闭引导">×</button></div>
-    <div className="onboarding-status"><span className={connected ? "done" : "current"}><i />{connected ? "账号已经连接" : "等待连接本机 Chrome"}</span><b>{videoCount ? `已发现 ${videoCount} 篇内容` : "首次将读取最近 5 篇"}</b></div>
+    <div className="onboarding-status"><span className={connected ? "done" : "current"}><i />{connected ? "账号已经连接" : "等待连接本机 Chrome"}</span><b>{videoCount >= 5 ? "最近 5 篇已同步" : videoCount ? `已有 ${videoCount} 篇，首次采集将补齐最近 5 篇` : "首次将读取最近 5 篇"}</b></div>
     <div className="onboarding-steps">
       <section><b>01</b><div><h3>在 Chrome 登录创作者中心</h3><p>使用需要监测的小红书账号登录，并保持页面处于登录状态。</p><a className="btn btn-ghost" href="https://creator.xiaohongshu.com" target="_blank" rel="noreferrer">打开创作者中心 ↗</a></div></section>
       <section><b>02</b><div><h3>确认 OpenCLI 浏览器扩展已连接</h3><p>扩展负责在本机读取当前登录账号；账号密码和 Cookie 不会上传到薯数。</p><a className="setup-link" href="https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk" target="_blank" rel="noreferrer">检查或安装扩展 →</a></div></section>

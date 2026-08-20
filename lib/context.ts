@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, users, workspaceMembers, workspaces } from "@/db/schema";
 import { getChatGPTUser, type ChatGPTUser } from "@/app/chatgpt-auth";
+import { env } from "cloudflare:workers";
 
 export type AppContext = {
   userId: string;
@@ -25,6 +26,8 @@ async function digestId(prefix: string, value: string) {
 export async function getCurrentUser() {
   const user = await getChatGPTUser();
   if (user) return user;
+  const singleUserMode = (env as unknown as { SHUSHU_SINGLE_USER_MODE?: string }).SHUSHU_SINGLE_USER_MODE === "true";
+  if (singleUserMode) return devUser();
   if (process.env.NODE_ENV !== "production") return devUser();
   return null;
 }
