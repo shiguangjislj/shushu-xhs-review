@@ -73,6 +73,7 @@ async function discover() {
   const name = String(field(profile, "Name") ?? "小红书账号");
   const platformAccountId = await accountId();
   const collectedAt = new Date().toISOString();
+  const videos = notes.map(mapNoteListItem);
   await api("/api/collector/ingest", {
     method: "POST",
     body: JSON.stringify({
@@ -81,10 +82,42 @@ async function discover() {
       collectorVersion: "opencli-1.8.6/shushu-1.0.0",
       account: { platformAccountId, nickname: name },
       accountMetrics: mapAccountMetrics(profile, seven, thirty, collectedAt),
-      videos: notes.map(mapNoteListItem),
+      videos,
     }),
   });
-  return { platformAccountId, nickname: name, noteCount: notes.length };
+  return { platformAccountId, nickname: name, noteCount: notes.length, videos };
+}
+
+async function uploadCurrentDetail(platformAccountId, nickname, video) {
+  const rows = runOpenCli(["xiaohongshu", "creator-note-detail", video.platformVideoId]);
+  const collectedAt = new Date().toISOString();
+  await api("/api/collector/ingest", {
+    method: "POST",
+    body: JSON.stringify({
+      idempotencyKey: `current:${video.platformVideoId}:${collectedAt}`,
+      collectedAt,
+      collectorVersion: "opencli-1.8.6/shushu-1.0.0",
+      account: { platformAccountId, nickname },
+      videos: [mapNoteDetail(rows, video, null)],
+    }),
+  });
+  return collectedAt;
+}
+
+async function collectRecentCurrent({ platformAccountId, nickname, videos }) {
+  let succeeded = 0;
+  let failed = 0;
+  for (const video of videos) {
+    try {
+      await uploadCurrentDetail(platformAccountId, nickname, video);
+      succeeded += 1;
+      process.stdout.write(`[${new Date().toISOString()}] 已回填当前详情 ${video.title}\n`);
+    } catch (error) {
+      failed += 1;
+      process.stderr.write(`[${new Date().toISOString()}] 当前详情采集失败 ${video.title}: ${error.message}\n`);
+    }
+  }
+  return { attempted: videos.length, succeeded, failed };
 }
 
 async function collectDue(platformAccountId, nickname) {
@@ -118,25 +151,20 @@ async function collectCurrent(videoId) {
   const videos = Array.isArray(data.videos) ? data.videos : [];
   const video = videos.find((item) => String(item.platformVideoId) === String(videoId) || String(item.id) === String(videoId));
   if (!video) throw new Error(videoId ? `没有找到视频：${videoId}` : "请在命令后提供视频 ID");
-  const rows = runOpenCli(["xiaohongshu", "creator-note-detail", video.platformVideoId]);
-  const collectedAt = new Date().toISOString();
-  await api("/api/collector/ingest", {
-    method: "POST",
-    body: JSON.stringify({
-      idempotencyKey: `current:${video.platformVideoId}:${collectedAt}`,
-      collectedAt,
-      collectorVersion: "opencli-1.8.6/shushu-1.0.0",
-      account: { platformAccountId: data.account.platformAccountId, nickname: data.account.nickname },
-      videos: [mapNoteDetail(rows, video, null)],
-    }),
-  });
+  const collectedAt = await uploadCurrentDetail(data.account.platformAccountId, data.account.nickname, video);
   process.stdout.write(JSON.stringify({ ok: true, platformVideoId: video.platformVideoId, title: video.title, collectedAt }) + "\n");
 }
 
 async function once() {
   const discovered = await discover();
+  const currentDetails = await collectRecentCurrent(discovered);
   const dueCount = await collectDue(discovered.platformAccountId, discovered.nickname);
-  process.stdout.write(JSON.stringify({ ok: true, ...discovered, dueCount, at: new Date().toISOString() }) + "\n");
+  const summary = {
+    platformAccountId: discovered.platformAccountId,
+    nickname: discovered.nickname,
+    noteCount: discovered.noteCount,
+  };
+  process.stdout.write(JSON.stringify({ ok: true, ...summary, currentDetails, dueCount, at: new Date().toISOString() }) + "\n");
 }
 
 async function main() {

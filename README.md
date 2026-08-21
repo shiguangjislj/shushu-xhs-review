@@ -8,13 +8,14 @@
 
 ## 数据存放在哪里
 
-当前业务数据和素材都只保存在本机：
+正式站点与本地开发使用两套存储：
 
-- 数据库：`.wrangler/state/v3/d1/`
-- 封面、视频等素材：`.wrangler/state/v3/r2/`
+- 正式站点：Cloudflare Worker + D1 数据库，域名为 `https://shushureview.cn`
+- 本地开发数据库：`.wrangler/state/v3/d1/`
+- 本地开发素材：`.wrangler/state/v3/r2/`
 - 小红书登录状态：由本机 Chrome 与 OpenCLI Browser Bridge 管理
 
-这些目录已被 Git 忽略，不会提交到 GitHub。代码仓库只保存表结构和迁移脚本。
+`.wrangler/`、`.env*` 和数据库导出文件都已被 Git 忽略，不会提交到 GitHub。代码仓库只保存源码、表结构、迁移脚本、部署配置和不含真实密钥的示例配置。
 
 ## 本地启动
 
@@ -61,7 +62,7 @@ npm run collector:cloud:once
 npm run collector:cloud:start
 ```
 
-`.env.collector.local` 不会提交到 GitHub；云端密钥也只作为 Sites 的加密环境变量保存。
+`.env.collector.local` 不会提交到 GitHub；云端密钥只作为 Cloudflare Worker 的加密变量保存。
 
 采集器只调用 OpenCLI 的创作者后台只读命令，不执行发布、评论或删除操作。登录失效或字段缺失不会被记录成真实的零值。
 
@@ -74,4 +75,11 @@ npm test
 
 ## 本地备份
 
-停止应用和采集器后，完整复制 `.wrangler/state/` 即可备份当前数据库和素材。恢复时把该目录复制回同一项目位置。
+本地测试数据可以在停止应用和采集器后，通过复制 `.wrangler/state/` 备份。正式数据位于 Cloudflare D1，建议离职、换机或重大升级前额外导出：
+
+```bash
+mkdir -p outputs/backups
+npx wrangler d1 export shushu-review-db --remote --output outputs/backups/shushu-review.sql
+```
+
+数据库导出包含真实业务数据，不能提交到 GitHub。换电脑和项目交接步骤见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
