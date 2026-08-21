@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import ShushuApp from "@/app/shushu-app";
 import { getDashboard } from "@/lib/queries";
 import { requireShareContext } from "@/lib/share-access";
+import { hasValidAccessSession } from "@/lib/access-auth";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +34,6 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
 
 export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  if (!await hasValidAccessSession()) redirect(`/login?return_to=${encodeURIComponent(`/share/${token}`)}`);
   return <ShushuApp shareToken={token} />;
 }

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, shareLinks } from "@/db/schema";
 import type { AppContext } from "./context";
+import { requireAccessSession } from "./access-auth";
 
 function hex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -17,6 +18,7 @@ export async function hashShareToken(token: string) {
 }
 
 export async function requireShareContext(token: string): Promise<AppContext> {
+  await requireAccessSession();
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Response("分享链接无效", { status: 404 });
   const db = getDb();
   const tokenHash = await hashShareToken(token);

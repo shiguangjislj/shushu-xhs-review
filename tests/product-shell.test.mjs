@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("ships the Shushu product shell instead of starter UI", async () => {
-  const [layout, page, sharePage, app, schema, packageJson] = await Promise.all([
+  const [layout, page, loginPage, sharePage, app, accessAuth, schema, packageJson] = await Promise.all([
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/share/[token]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/shushu-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/access-auth.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -22,7 +24,11 @@ test("ships the Shushu product shell instead of starter UI", async () => {
   assert.match(app, /xiaohongshu\.com\/explore/);
   assert.match(app, /生成只读链接/);
   assert.match(app, /只读分享/);
-  assert.match(page, /chatGPTSignInPath/);
+  assert.match(page, /\/login\?return_to=/);
+  assert.match(loginPage, /路人甲TM 数据后台/);
+  assert.match(accessAuth, /HttpOnly; SameSite=Lax/);
+  assert.match(accessAuth, /crypto\.subtle\.sign/);
+  assert.match(sharePage, /hasValidAccessSession/);
   assert.match(sharePage, /shareToken/);
   assert.match(schema, /share_links/);
   assert.doesNotMatch(`${layout}\n${page}\n${app}`, /Starter Project|Building your site|SkeletonPreview/);

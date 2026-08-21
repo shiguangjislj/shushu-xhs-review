@@ -108,6 +108,10 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
     }
     navigate("settings");
   };
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    window.location.assign("/login");
+  };
 
   const filteredVideos = useMemo(() => (data?.videos ?? []).filter((video) => String(video.title ?? "").toLowerCase().includes(query.toLowerCase())), [data?.videos, query]);
   const account = data?.account ?? {};
@@ -124,7 +128,7 @@ export default function ShushuApp({ shareToken }: { shareToken?: string }) {
       {!readOnly && <><div className="nav-label txt">系统</div><NavButton icon="settings" label="采集设置" active={activeNav === "settings"} onClick={() => navigate("settings")} /></>}
       <div className="side-foot">{readOnly
         ? <button type="button" className="acct" disabled><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span></button>
-        : <details className="account-menu"><summary className="acct acct-action" aria-label="打开账号菜单"><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span><span className="account-chevron">⌃</span></summary><div className="account-popover"><button type="button" onClick={openAccountPanel}><Icon name="settings" />采集设置</button><button type="button" className="logout-option" onClick={() => setToast("当前为单账号内部版，暂无独立登录会话可退出")}><Icon name="history" />退出登录</button><small>多用户登录上线后启用</small></div></details>}
+        : <details className="account-menu"><summary className="acct acct-action" aria-label="打开账号菜单"><span className="av">{String(account.nickname ?? "薯").slice(0, 1)}</span><span className="txt"><span className="nm">{String(account.nickname ?? "待连接账号")}</span><span className={`st ${account.connectionStatus !== "connected" ? "pending" : ""}`}><i className="dot-live" />{account.connectionStatus === "connected" ? "采集已连接" : "等待连接"}</span></span><span className="account-chevron">⌃</span></summary><div className="account-popover"><button type="button" onClick={openAccountPanel}><Icon name="settings" />采集设置</button><button type="button" className="logout-option" onClick={logout}><Icon name="history" />退出登录</button></div></details>}
       </div>
     </aside>
 
