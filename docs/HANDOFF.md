@@ -42,6 +42,34 @@ npm run collector:cloud:once
 npm run collector:cloud:start
 ```
 
+## 加密交接包
+
+当前 Mac 的加密包路径：
+
+```text
+outputs/backups/shushu-handoff-secure-2026-08-21.tar.gz.enc
+```
+
+恢复密码保存在当前 Mac 钥匙串的 `shushu-handoff-backup-2026-08-21` 条目中。离开旧电脑前，必须把密码复制到独立的密码管理器；钥匙串条目不能代替异地备份。
+
+在旧电脑读取恢复密码：
+
+```bash
+security find-generic-password -a mac -s shushu-handoff-backup-2026-08-21 -w
+```
+
+在新电脑设置密码环境变量后解密：
+
+```bash
+export SHUSHU_BACKUP_PASSWORD='<从密码管理器读取>'
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+  -in shushu-handoff-secure-2026-08-21.tar.gz.enc \
+  -pass env:SHUSHU_BACKUP_PASSWORD | tar -xzf -
+unset SHUSHU_BACKUP_PASSWORD
+```
+
+加密包包含真实业务数据和采集 Token，只能放入公司批准的加密移动硬盘或安全存储，不能上传到 GitHub。
+
 ## 日常更新与部署
 
 ```bash
